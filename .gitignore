@@ -1,0 +1,35 @@
+# =====================
+# Virtual environments
+# =====================
+.venv/
+venv/
+env/
+
+# =====================
+# Python cache
+# =====================
+__pycache__/
+*.pyc
+.mypy_cache/
+
+# =====================
+# Datasets (do NOT push)
+# =====================
+Dataset/
+*.csv
+
+# =====================
+# Models (large files)
+# =====================
+model/
+
+# =====================
+# Jupyter checkpoints
+# =====================
+.ipynb_checkpoints/
+
+# =====================
+# OS files
+# =====================
+.DS_Store
+Thumbs.db
