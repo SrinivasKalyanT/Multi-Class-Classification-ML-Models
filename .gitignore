@@ -16,12 +16,12 @@ __pycache__/
 # Datasets (do NOT push)
 # =====================
 Dataset/
-*.csv
+# *.csv
 
 # =====================
 # Models (large files)
 # =====================
-model/
+# model/
 
 # =====================
 # Jupyter checkpoints
