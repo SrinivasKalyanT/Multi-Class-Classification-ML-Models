@@ -19,7 +19,7 @@ from sklearn.metrics import (
 # APP CONFIG
 # =========================
 st.set_page_config(page_title="ML Assignment 2 – Model Comparison", layout="wide")
-st.title("📊 ML Assignment 2 – Model Evaluation App")
+st.title("ML Assignment 2 – Model Evaluation App")
 st.write(
     "Upload **test data only**, select a trained model, and view evaluation results."
 )
@@ -35,6 +35,7 @@ model_files = {
     "Naive Bayes": "naive_bayes.pkl",
     "Random Forest": "random_forest.pkl",
     "XGBoost": "xgboost.pkl",
+    "best_model": "best_model.pkl",
 }
 
 available_models = {
@@ -46,7 +47,7 @@ available_models = {
 # =========================
 # SIDEBAR – MODEL SELECTION
 # =========================
-st.sidebar.header("⚙️ Configuration")
+st.sidebar.header("Configuration")
 selected_model_name = st.sidebar.selectbox(
     "Select Model", list(available_models.keys())
 )
@@ -55,7 +56,7 @@ model = available_models[selected_model_name]
 # =========================
 # DATA UPLOAD
 # =========================
-st.subheader("📂 Upload Test Dataset")
+st.subheader("Upload Test Dataset")
 st.write("Upload **X_test.csv** and **y_test.csv**")
 
 X_file = st.file_uploader("Upload X_test.csv", type=["csv"], key="x")
@@ -66,9 +67,13 @@ if X_file and y_file:
     y_test = pd.read_csv(y_file).values.ravel() - 1
 
     # Ensure feature names match training
-    X_test.columns = [f"f{i}" for i in range(X_test.shape[1])]
+    # Load saved feature names
+    feature_names = joblib.load(os.path.join(MODEL_DIR, "feature_names.pkl"))
 
-    st.success("✅ Test data uploaded successfully")
+    # Ensure test data matches training schema
+    X_test.columns = feature_names
+
+    st.success("Test data uploaded successfully")
 
     # =========================
     # PREDICTION
@@ -84,7 +89,7 @@ if X_file and y_file:
     f1 = f1_score(y_test, y_pred, average="macro")
     mcc = matthews_corrcoef(y_test, y_pred)
 
-    st.subheader("📈 Evaluation Metrics")
+    st.subheader("Evaluation Metrics")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Accuracy", f"{acc:.4f}")
@@ -98,7 +103,7 @@ if X_file and y_file:
     # =========================
     # CONFUSION MATRIX
     # =========================
-    st.subheader("🔍 Confusion Matrix")
+    st.subheader("Confusion Matrix")
     cm = confusion_matrix(y_test, y_pred)
 
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -110,9 +115,9 @@ if X_file and y_file:
     # =========================
     # CLASSIFICATION REPORT
     # =========================
-    st.subheader("📄 Classification Report")
+    st.subheader("Classification Report")
     report = classification_report(y_test, y_pred)
     st.text(report)
 
 else:
-    st.info("⬅️ Please upload both X_test.csv and y_test.csv to continue")
+    st.info("Please upload both X_test.csv and y_test.csv to continue")
