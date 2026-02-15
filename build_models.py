@@ -1,3 +1,7 @@
+# # ============================================================
+# # Multi-Class Classification with Cross Validation
+# # Dataset: UCI Human Activity Recognition
+# # ============================================================
 import os
 
 import joblib
@@ -13,6 +17,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -31,82 +36,68 @@ Y_TEST_PATH = "y_test.csv"
 
 
 # ===============================
-# UTILITY FUNCTIONS
+# LOAD DATA
 # ===============================
 def load_csv(path):
     if not os.path.exists(path):
-        raise FileNotFoundError(f"❌ File not found: {path}")
+        raise FileNotFoundError(f"File not found: {path}")
     return pd.read_csv(path)
 
 
-def dataset_checks(X, y, name="Dataset"):
-    print(f"\n🔍 Checking {name}...")
+print("=" * 50)
+print("Loading datasets...")
+print("=" * 50)
 
-    # Shape check
-    print(f"Shape X: {X.shape}, y: {y.shape}")
-
-    # Missing values
-    if X.isnull().sum().sum() > 0:
-        print("⚠️ Missing values found in X — applying fillna(0)")
-        X.fillna(0, inplace=True)
-
-    if pd.isnull(y).sum() > 0:
-        raise ValueError("❌ Missing labels found in y")
-
-    # Label sanity
-    unique_labels = np.unique(y)
-    print(f"Unique labels: {unique_labels}")
-
-    return X, y
-
-
-def evaluate_model(model, X_test, y_test):
-    y_pred = model.predict(X_test)
-
-    metrics = {
-        "Accuracy": accuracy_score(y_test, y_pred),
-        "Precision": precision_score(y_test, y_pred, average="macro"),
-        "Recall": recall_score(y_test, y_pred, average="macro"),
-        "F1": f1_score(y_test, y_pred, average="macro"),
-        "MCC": matthews_corrcoef(y_test, y_pred),
-    }
-
-    # AUC (only if predict_proba exists)
-    if hasattr(model, "predict_proba"):
-        y_proba = model.predict_proba(X_test)
-        metrics["AUC"] = roc_auc_score(y_test, y_proba, multi_class="ovr")
-    else:
-        metrics["AUC"] = np.nan
-
-    return metrics
-
-
-# ===============================
-# LOAD DATA
-# ===============================
-print("📂 Loading datasets...")
 X_train = load_csv(X_TRAIN_PATH)
-y_train = load_csv(Y_TRAIN_PATH).values.ravel() - 1
+y_train = load_csv(Y_TRAIN_PATH).values.ravel() - 1  # zero index
 
 X_test = load_csv(X_TEST_PATH)
 y_test = load_csv(Y_TEST_PATH).values.ravel() - 1
 
-# ===============================
-# DATASET CHECKS
-# ===============================
-X_train, y_train = dataset_checks(X_train, y_train, "Training Data")
-X_test, y_test = dataset_checks(X_test, y_test, "Test Data")
+# Save feature names used during training
+feature_names = X_train.columns.tolist()
+joblib.dump(feature_names, os.path.join(MODEL_DIR, "feature_names.pkl"))
 
-# Feature alignment
-if X_train.shape[1] != X_test.shape[1]:
-    raise ValueError("❌ Feature mismatch between train and test sets")
+print("Feature names saved.")
 
-# Standardize feature names
-X_train.columns = [f"f{i}" for i in range(X_train.shape[1])]
-X_test.columns = X_train.columns
+print("Train shape:", X_train.shape)
+print("Test shape:", X_test.shape)
+
+
+# ===============================
+# SPLIT TRAIN INTO TRAIN + VAL
+# ===============================
+X_train_part, X_val_part, y_train_part, y_val_part = train_test_split(
+    X_train,
+    y_train,
+    test_size=0.2,
+    stratify=y_train,
+    random_state=42,
+)
+
+print("Train split:", X_train_part.shape)
+print("Validation split:", X_val_part.shape)
+print("=" * 50)
+
+# ===============================
+# CROSS VALIDATION SETUP
+# ===============================
+cv = StratifiedKFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=42,
+)
+
+scoring = {
+    "accuracy": "accuracy",
+    "precision": "precision_macro",
+    "recall": "recall_macro",
+    "f1": "f1_macro",
+    "roc_auc": "roc_auc_ovr",
+}
+
 
 n_classes = len(np.unique(y_train))
-print(f"\n✅ Number of classes: {n_classes}")
 
 
 # ===============================
@@ -118,7 +109,9 @@ models = {
     "KNN": KNeighborsClassifier(n_neighbors=5),
     "Naive Bayes": GaussianNB(),
     "Random Forest": RandomForestClassifier(
-        n_estimators=100, random_state=42, n_jobs=-1
+        n_estimators=100,
+        random_state=42,
+        n_jobs=-1,
     ),
     "XGBoost": XGBClassifier(
         objective="multi:softprob",
@@ -132,32 +125,102 @@ models = {
 
 
 # ===============================
-# TRAIN + EVALUATE
+# CROSS VALIDATION ON TRAIN_PART
 # ===============================
 results = []
 
-for name, model in models.items():
-    print(f"\n🚀 Training {name}...")
-    model.fit(X_train, y_train)
+print("\nPerforming 5-Fold CV on Training Split...")
 
-    metrics = evaluate_model(model, X_test, y_test)
-    metrics["Model"] = name
+for name, model in models.items():
+    print(f"\nCross-validating {name}...")
+
+    cv_results = cross_validate(
+        model,
+        X_train_part,
+        y_train_part,
+        cv=cv,
+        scoring=scoring,
+        n_jobs=-1,
+    )
+
+    metrics = {
+        "Model": name,
+        "CV_Accuracy": np.mean(cv_results["test_accuracy"]),
+        "CV_Precision": np.mean(cv_results["test_precision"]),
+        "CV_Recall": np.mean(cv_results["test_recall"]),
+        "CV_F1": np.mean(cv_results["test_f1"]),
+        "CV_AUC": np.mean(cv_results["test_roc_auc"]),
+    }
+
     results.append(metrics)
 
-    file_name = name.lower().replace(" ", "_") + ".pkl"
-    joblib.dump(model, os.path.join(MODEL_DIR, file_name))
-    print(f"✅ Model saved: {MODEL_DIR}/{file_name}")
-
-
-# ===============================
-# RESULTS SUMMARY
-# ===============================
-results_df = pd.DataFrame(results)[
-    ["Model", "Accuracy", "AUC", "Precision", "Recall", "F1", "MCC"]
-]
-
-print("\n📊 FINAL MODEL COMPARISON")
+results_df = pd.DataFrame(results)
+print("\nCROSS VALIDATION RESULTS")
+print("=" * 100)
 print(results_df)
-
+print("=" * 100)
 results_df.to_csv("model_comparison_metrics.csv", index=False)
-print("\n📁 Metrics saved to model_comparison_metrics.csv")
+
+# ===============================
+# TRAIN & SAVE ALL MODELS ON FULL TRAIN DATA
+# ===============================
+print("\n Training all models on full training data and saving them...")
+
+trained_models = {}
+
+for name, model in models.items():
+    print(f"\nTraining {name} on full data...")
+    model.fit(X_train, y_train)
+
+    file_name = name.lower().replace(" ", "_") + ".pkl"
+    model_path = os.path.join(MODEL_DIR, file_name)
+
+    joblib.dump(model, model_path)
+    print(f"Saved: {model_path}")
+
+    trained_models[name] = model
+
+
+# ===============================
+# SELECT BEST MODEL (Based on CV F1)
+# ===============================
+best_model_name = results_df.sort_values(by="CV_F1", ascending=False).iloc[0]["Model"]
+
+print(f"\nBest Model from CV: {best_model_name}")
+
+best_model = trained_models[best_model_name]
+
+# Save best model separately
+best_model_path = os.path.join(MODEL_DIR, "best_model.pkl")
+joblib.dump(best_model, best_model_path)
+
+print(f" Best model saved separately as: {best_model_path}")
+
+
+# ===============================
+# FINAL TEST EVALUATION
+# ===============================
+print("\n Final Test Evaluation")
+
+y_pred = best_model.predict(X_test)
+
+test_metrics = {
+    "Accuracy": accuracy_score(y_test, y_pred),
+    "Precision": precision_score(y_test, y_pred, average="macro"),
+    "Recall": recall_score(y_test, y_pred, average="macro"),
+    "F1": f1_score(y_test, y_pred, average="macro"),
+    "MCC": matthews_corrcoef(y_test, y_pred),
+}
+
+if hasattr(best_model, "predict_proba"):
+    y_proba = best_model.predict_proba(X_test)
+    test_metrics["AUC"] = roc_auc_score(y_test, y_proba, multi_class="ovr")
+else:
+    test_metrics["AUC"] = np.nan
+
+print("=" * 100)
+print("\nTEST SET METRICS")
+print(test_metrics)
+
+print("\n All models trained, saved, and evaluated successfully!")
+print("=" * 100)
